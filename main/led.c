@@ -80,3 +80,13 @@ void set_led_color(int red, int green, int blue)
   ledc_set_duty(LEDC_LOW_SPEED_MODE, BLUE_LEDC_CHANNEL, blue);
   ledc_update_duty(LEDC_LOW_SPEED_MODE, BLUE_LEDC_CHANNEL);
 }
+
+void set_led_off()
+{
+  ledc_set_duty(LEDC_LOW_SPEED_MODE, RED_LEDC_CHANNEL, 0);
+  ledc_update_duty(LEDC_LOW_SPEED_MODE, RED_LEDC_CHANNEL);
+  ledc_set_duty(LEDC_LOW_SPEED_MODE, GREEN_LEDC_CHANNEL, 0);
+  ledc_update_duty(LEDC_LOW_SPEED_MODE, GREEN_LEDC_CHANNEL);
+  ledc_set_duty(LEDC_LOW_SPEED_MODE, BLUE_LEDC_CHANNEL, 0);
+  ledc_update_duty(LEDC_LOW_SPEED_MODE, BLUE_LEDC_CHANNEL);
+}

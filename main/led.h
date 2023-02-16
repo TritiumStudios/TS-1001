@@ -8,4 +8,6 @@ void init_led(void);
 
 void set_led_color(int red, int green, int blue);
 
+void set_led_off();
+
 #endif

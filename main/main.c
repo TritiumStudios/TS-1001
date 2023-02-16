@@ -28,22 +28,27 @@
 #define AUTO_RELOAD true
 
 /* The max length of characteristic value. When the GATT client performs a write or prepare write operation,
- *  the data length must be less than GATTS_DEMO_CHAR_VAL_LEN_MAX.
+ *  the data length must be less than GATTS_CHAR_VAL_LEN_MAX.
  */
-#define GATTS_DEMO_CHAR_VAL_LEN_MAX 500
+#define GATTS_CHAR_VAL_LEN_MAX 500
 #define PREPARE_BUF_MAX_SIZE 1024
 #define CHAR_DECLARATION_SIZE (sizeof(uint8_t))
+
+#define MANUFACTURER_DATA_LEN 1
 
 #define ADV_CONFIG_FLAG (1 << 0)
 #define SCAN_RSP_CONFIG_FLAG (1 << 1)
 
 #define DEFAULT_COLOR 0xffffff
+#define DEFAULT_POWER 0x01
 #define NVS_NAMESPACE "led"
 #define NVS_COLOR "color"
+#define NVS_POWER "power"
 
 static uint8_t adv_config_done = 0;
 
 static uint32_t current_color = DEFAULT_COLOR;
+static uint8_t current_power = DEFAULT_POWER;
 
 uint16_t gatts_handle_table[HRS_IDX_NB];
 
@@ -63,12 +68,22 @@ void store_color(uint32_t color)
     nvs_close(nvs_handle);
 }
 
+void store_power(uint8_t power)
+{
+    nvs_handle_t nvs_handle;
+    ESP_ERROR_CHECK(nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle));
+    ESP_ERROR_CHECK(nvs_set_u8(nvs_handle, NVS_POWER, power));
+    ESP_ERROR_CHECK(nvs_commit(nvs_handle));
+    nvs_close(nvs_handle);
+}
+
 static bool timer_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx)
 {
     BaseType_t high_task_awoken = pdFALSE;
     ESP_ERROR_CHECK(gptimer_stop(timer));
     // ESP_LOGI(TAG, "timer cb");
     store_color(current_color);
+    store_power(current_power);
     return high_task_awoken == pdTRUE;
 }
 
@@ -105,6 +120,9 @@ typedef struct
 
 static prepare_type_env_t prepare_write_env;
 
+const uint8_t power_on[1] = {0x01};
+static uint8_t manufacturer_data[1] = {DEFAULT_POWER};
+
 static uint8_t service_uuid[16] = {
     /* LSB <--------------------------------------------------------------------------------> MSB */
     // first uuid, 16bit, [12],[13] is the value
@@ -134,8 +152,8 @@ static esp_ble_adv_data_t adv_data = {
     .min_interval = 0x0006, // slave connection min interval, Time = min_interval * 1.25 msec
     .max_interval = 0x0010, // slave connection max interval, Time = max_interval * 1.25 msec
     .appearance = 0x00,
-    .manufacturer_len = 0,       // TEST_MANUFACTURER_DATA_LEN,
-    .p_manufacturer_data = NULL, // test_manufacturer,
+    .manufacturer_len = MANUFACTURER_DATA_LEN,
+    .p_manufacturer_data = manufacturer_data,
     .service_data_len = 0,
     .p_service_data = NULL,
     .service_uuid_len = sizeof(service_uuid),
@@ -151,8 +169,8 @@ static esp_ble_adv_data_t scan_rsp_data = {
     .min_interval = 0x0006,
     .max_interval = 0x0010,
     .appearance = 0x00,
-    .manufacturer_len = 0,       // TEST_MANUFACTURER_DATA_LEN,
-    .p_manufacturer_data = NULL, //&test_manufacturer[0],
+    .manufacturer_len = 0,       // MANUFACTURER_DATA_LEN,
+    .p_manufacturer_data = NULL, //&manufacturer_data[0],
     .service_data_len = 0,
     .p_service_data = NULL,
     .service_uuid_len = sizeof(service_uuid),
@@ -198,14 +216,17 @@ static struct gatts_profile_inst heart_rate_profile_tab[PROFILE_NUM] = {
 
 /* Service */
 static const uint16_t GATTS_SERVICE_UUID_TEST = 0x004A;
-static const uint16_t GATTS_CHAR_UUID_TEST_A = 0x4A01;
+static const uint16_t GATTS_CHAR_UUID_COLOR = 0x4A01;
+static const uint16_t GATTS_CHAR_UUID_POWER = 0x4A02;
 
 static const uint16_t primary_service_uuid = ESP_GATT_UUID_PRI_SERVICE;
 static const uint16_t character_declaration_uuid = ESP_GATT_UUID_CHAR_DECLARE;
 static const uint16_t character_client_config_uuid = ESP_GATT_UUID_CHAR_CLIENT_CONFIG;
+static const uint8_t char_prop_read_write = ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_READ;
 static const uint8_t char_prop_read_write_notify = ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_NOTIFY;
 static const uint8_t client_characteristic_configuration[2] = {0x00, 0x00};
-static uint8_t char_value[3] = {0xff, 0xff, 0xff};
+static uint8_t char_color_value[3] = {0xff, 0xff, 0xff};
+static uint8_t char_power_value[1] = {DEFAULT_POWER};
 
 /* Full Database Description - Used to add attributes into the database */
 static const esp_gatts_attr_db_t gatt_db[HRS_IDX_NB] =
@@ -215,16 +236,24 @@ static const esp_gatts_attr_db_t gatt_db[HRS_IDX_NB] =
             {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&primary_service_uuid, ESP_GATT_PERM_READ, sizeof(uint16_t), sizeof(GATTS_SERVICE_UUID_TEST), (uint8_t *)&GATTS_SERVICE_UUID_TEST}},
 
         /* Characteristic Declaration */
-        [IDX_CHAR_A] =
+        [IDX_CHAR_COLOR] =
             {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_declaration_uuid, ESP_GATT_PERM_READ, CHAR_DECLARATION_SIZE, CHAR_DECLARATION_SIZE, (uint8_t *)&char_prop_read_write_notify}},
 
         /* Characteristic Value */
-        [IDX_CHAR_VAL_A] =
-            {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_CHAR_UUID_TEST_A, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE, GATTS_DEMO_CHAR_VAL_LEN_MAX, sizeof(char_value), (uint8_t *)char_value}},
+        [IDX_CHAR_VAL_COLOR] =
+            {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_CHAR_UUID_COLOR, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE, GATTS_CHAR_VAL_LEN_MAX, sizeof(char_color_value), (uint8_t *)char_color_value}},
 
         /* Client Characteristic Configuration Descriptor */
-        [IDX_CHAR_CFG_A] =
+        [IDX_CHAR_CFG_COLOR] =
             {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_client_config_uuid, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE, sizeof(uint16_t), sizeof(client_characteristic_configuration), (uint8_t *)client_characteristic_configuration}},
+
+        /* Characteristic Declaration */
+        [IDX_CHAR_POWER] =
+            {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_declaration_uuid, ESP_GATT_PERM_READ, CHAR_DECLARATION_SIZE, CHAR_DECLARATION_SIZE, (uint8_t *)&char_prop_read_write}},
+
+        /* Characteristic Value */
+        [IDX_CHAR_VAL_POWER] =
+            {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_CHAR_UUID_POWER, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE, GATTS_CHAR_VAL_LEN_MAX, sizeof(char_power_value), (uint8_t *)char_power_value}},
 };
 
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
@@ -396,11 +425,11 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     case ESP_GATTS_WRITE_EVT:
         if (!param->write.is_prep)
         {
-            // the data length of gattc write  must be less than GATTS_DEMO_CHAR_VAL_LEN_MAX.
+            // the data length of gattc write  must be less than GATTS_CHAR_VAL_LEN_MAX.
             // ESP_LOGI(TAG, "GATT_WRITE_EVT, handle = %d, value len = %d, value :", param->write.handle, param->write.len);
             // esp_log_buffer_hex(TAG, param->write.value, param->write.len);
 
-            if (gatts_handle_table[IDX_CHAR_VAL_A] == param->write.handle && param->write.len == 3)
+            if (gatts_handle_table[IDX_CHAR_VAL_COLOR] == param->write.handle && param->write.len == 3)
             {
                 restart_timer();
 
@@ -412,9 +441,40 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                 uint32_t color = red << 16 | green << 8 | blue;
                 // ESP_LOGI(TAG, "(%lu)", color);
                 current_color = color;
+
+                current_power = 0x01;
+                esp_ble_gatts_set_attr_value(gatts_handle_table[IDX_CHAR_VAL_POWER], 1, power_on);
+
+                manufacturer_data[0] = current_power;
+                esp_ble_gap_config_adv_data(&adv_data);
             }
 
-            if (gatts_handle_table[IDX_CHAR_CFG_A] == param->write.handle && param->write.len == 2)
+            if (gatts_handle_table[IDX_CHAR_VAL_POWER] == param->write.handle && param->write.len == 1)
+            {
+                restart_timer();
+
+                uint8_t power = param->write.value[0];
+                ESP_LOGI(TAG, "POWER %u", power);
+                if (power == 0x00)
+                {
+                    set_led_off();
+                    manufacturer_data[0] = power;
+                    esp_ble_gap_config_adv_data(&adv_data);
+                }
+                else
+                {
+                    uint8_t red = current_color >> 16;
+                    uint8_t green = current_color >> 8;
+                    uint8_t blue = current_color;
+                    set_led_color(red, green, blue);
+                    manufacturer_data[0] = power;
+                    esp_ble_gap_config_adv_data(&adv_data);
+                }
+
+                current_power = power;
+            }
+
+            if (gatts_handle_table[IDX_CHAR_CFG_COLOR] == param->write.handle && param->write.len == 2)
             {
                 uint16_t descr_value = param->write.value[1] << 8 | param->write.value[0];
                 if (descr_value == 0x0001)
@@ -426,7 +486,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                         notify_data[i] = i % 0xff;
                     }
                     // the size of notify_data[] need less than MTU size
-                    esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, gatts_handle_table[IDX_CHAR_VAL_A],
+                    esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, gatts_handle_table[IDX_CHAR_VAL_COLOR],
                                                 sizeof(notify_data), notify_data, false);
                 }
                 else if (descr_value == 0x0002)
@@ -438,7 +498,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                         indicate_data[i] = i % 0xff;
                     }
                     // the size of indicate_data[] need less than MTU size
-                    esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, gatts_handle_table[IDX_CHAR_VAL_A],
+                    esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, gatts_handle_table[IDX_CHAR_VAL_COLOR],
                                                 sizeof(indicate_data), indicate_data, true);
                 }
                 else if (descr_value == 0x0000)
@@ -464,7 +524,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
         }
         break;
     case ESP_GATTS_EXEC_WRITE_EVT:
-        // the length of gattc prepare write data must be less than GATTS_DEMO_CHAR_VAL_LEN_MAX.
+        // the length of gattc prepare write data must be less than GATTS_CHAR_VAL_LEN_MAX.
         ESP_LOGI(TAG, "ESP_GATTS_EXEC_WRITE_EVT");
         example_exec_write_event_env(&prepare_write_env, param);
         break;
@@ -591,20 +651,41 @@ void app_main(void)
         ESP_ERROR_CHECK(ret);
         ESP_LOGI(TAG, "COLOR: %lu", color);
     }
+
+    uint8_t power;
+    ret = nvs_get_u8(nvs_handle, NVS_POWER, &power);
+    if (ret == ESP_ERR_NVS_NOT_FOUND)
+    {
+        ESP_LOGI(TAG, "Setting the default power (%u)", DEFAULT_POWER);
+        ESP_ERROR_CHECK(nvs_set_u8(nvs_handle, NVS_POWER, DEFAULT_POWER));
+        ESP_ERROR_CHECK(nvs_commit(nvs_handle));
+    }
+    else
+    {
+        ESP_ERROR_CHECK(ret);
+        ESP_LOGI(TAG, "POWER: %u", power);
+    }
     nvs_close(nvs_handle);
 
     init_timer();
 
     init_led();
 
-    uint8_t red = color >> 16;
-    uint8_t green = color >> 8;
-    uint8_t blue = color;
-    char_value[0] = red;
-    char_value[1] = green;
-    char_value[2] = blue;
-    ESP_LOGI(TAG, "initial color (%d, %d, %d)", red, green, blue);
-    set_led_color(red, green, blue);
+    if (power == 0x01)
+    {
+        uint8_t red = color >> 16;
+        uint8_t green = color >> 8;
+        uint8_t blue = color;
+        char_color_value[0] = red;
+        char_color_value[1] = green;
+        char_color_value[2] = blue;
+        ESP_LOGI(TAG, "initial color (%d, %d, %d)", red, green, blue);
+        set_led_color(red, green, blue);
+    }
+    else
+    {
+        set_led_off();
+    }
 
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
 

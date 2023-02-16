@@ -14,9 +14,13 @@
 enum
 {
     IDX_SVC,
-    IDX_CHAR_A,
-    IDX_CHAR_VAL_A,
-    IDX_CHAR_CFG_A,
+
+    IDX_CHAR_COLOR,
+    IDX_CHAR_VAL_COLOR,
+    IDX_CHAR_CFG_COLOR,
+
+    IDX_CHAR_POWER,
+    IDX_CHAR_VAL_POWER,
 
     HRS_IDX_NB,
 };
