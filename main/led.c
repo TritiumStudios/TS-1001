@@ -69,9 +69,9 @@ void init_led(void)
 
 void set_led_color(int red, int green, int blue)
 {
-  red = red * 32;
-  green = green * 32;
-  blue = blue * 32;
+  red = 0.12 * (red * red);
+  green = 0.12 * (green * green);
+  blue = 0.12 * (blue * blue);
 
   ledc_set_duty(LEDC_LOW_SPEED_MODE, RED_LEDC_CHANNEL, red);
   ledc_update_duty(LEDC_LOW_SPEED_MODE, RED_LEDC_CHANNEL);
