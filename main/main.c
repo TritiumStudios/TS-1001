@@ -686,6 +686,7 @@ void app_main(void)
     {
         set_led_off();
     }
+    manufacturer_data[0] = power;
 
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
 
