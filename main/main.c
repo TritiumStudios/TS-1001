@@ -12,6 +12,8 @@
 #include "gatts_table_creat_demo.h"
 #include "esp_gatt_common_api.h"
 
+#include "driver/gptimer.h"
+
 #include "led.h"
 
 #define TAG "GATTS_TABLE"
@@ -21,6 +23,9 @@
 #define ESP_APP_ID 0x55
 #define DEVICE_NAME "TS-1001"
 #define SVC_INST_ID 0
+
+#define TIMEOUT_SEC 5
+#define AUTO_RELOAD true
 
 /* The max length of characteristic value. When the GATT client performs a write or prepare write operation,
  *  the data length must be less than GATTS_DEMO_CHAR_VAL_LEN_MAX.
@@ -38,7 +43,16 @@
 
 static uint8_t adv_config_done = 0;
 
-uint16_t color_handle_table[HRS_IDX_NB];
+static uint32_t current_color = DEFAULT_COLOR;
+
+uint16_t gatts_handle_table[HRS_IDX_NB];
+
+gptimer_handle_t gptimer = NULL;
+gptimer_config_t timer_config = {
+    .clk_src = GPTIMER_CLK_SRC_DEFAULT,
+    .direction = GPTIMER_COUNT_UP,
+    .resolution_hz = 1000000, // 1MHz, 1 tick=1us
+};
 
 void store_color(uint32_t color)
 {
@@ -47,6 +61,40 @@ void store_color(uint32_t color)
     ESP_ERROR_CHECK(nvs_set_u32(nvs_handle, NVS_COLOR, color));
     ESP_ERROR_CHECK(nvs_commit(nvs_handle));
     nvs_close(nvs_handle);
+}
+
+static bool timer_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx)
+{
+    BaseType_t high_task_awoken = pdFALSE;
+    ESP_ERROR_CHECK(gptimer_stop(timer));
+    // ESP_LOGI(TAG, "timer cb");
+    store_color(current_color);
+    return high_task_awoken == pdTRUE;
+}
+
+static void init_timer()
+{
+    ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &gptimer));
+
+    gptimer_alarm_config_t alarm_config = {
+        .alarm_count = TIMEOUT_SEC * 1000 * 1000, // alarm target = 5s @resolution 1MHz
+        .reload_count = 0,
+        .flags.auto_reload_on_alarm = AUTO_RELOAD};
+    ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer, &alarm_config));
+
+    gptimer_event_callbacks_t cbs = {
+        .on_alarm = timer_cb, // register user callback
+    };
+    ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer, &cbs, NULL));
+    ESP_ERROR_CHECK(gptimer_enable(gptimer));
+}
+
+static void restart_timer()
+{
+    ESP_ERROR_CHECK(gptimer_stop(gptimer));
+    ESP_ERROR_CHECK(gptimer_set_raw_count(gptimer, 0));
+    ESP_ERROR_CHECK(gptimer_start(gptimer));
+    ESP_LOGI(TAG, "reset timer");
 }
 
 typedef struct
@@ -349,22 +397,24 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
         if (!param->write.is_prep)
         {
             // the data length of gattc write  must be less than GATTS_DEMO_CHAR_VAL_LEN_MAX.
-            ESP_LOGI(TAG, "GATT_WRITE_EVT, handle = %d, value len = %d, value :", param->write.handle, param->write.len);
-            esp_log_buffer_hex(TAG, param->write.value, param->write.len);
+            // ESP_LOGI(TAG, "GATT_WRITE_EVT, handle = %d, value len = %d, value :", param->write.handle, param->write.len);
+            // esp_log_buffer_hex(TAG, param->write.value, param->write.len);
 
-            if (color_handle_table[IDX_CHAR_VAL_A] == param->write.handle && param->write.len == 3)
+            if (gatts_handle_table[IDX_CHAR_VAL_A] == param->write.handle && param->write.len == 3)
             {
+                restart_timer();
+
                 uint8_t red = param->write.value[0];
                 uint8_t green = param->write.value[1];
                 uint8_t blue = param->write.value[2];
                 ESP_LOGI(TAG, "(%d, %d, %d)", red, green, blue);
                 set_led_color(red, green, blue);
                 uint32_t color = red << 16 | green << 8 | blue;
-                ESP_LOGI(TAG, "(%lu)", color);
-                store_color(color);
+                // ESP_LOGI(TAG, "(%lu)", color);
+                current_color = color;
             }
 
-            if (color_handle_table[IDX_CHAR_CFG_A] == param->write.handle && param->write.len == 2)
+            if (gatts_handle_table[IDX_CHAR_CFG_A] == param->write.handle && param->write.len == 2)
             {
                 uint16_t descr_value = param->write.value[1] << 8 | param->write.value[0];
                 if (descr_value == 0x0001)
@@ -376,7 +426,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                         notify_data[i] = i % 0xff;
                     }
                     // the size of notify_data[] need less than MTU size
-                    esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, color_handle_table[IDX_CHAR_VAL_A],
+                    esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, gatts_handle_table[IDX_CHAR_VAL_A],
                                                 sizeof(notify_data), notify_data, false);
                 }
                 else if (descr_value == 0x0002)
@@ -388,7 +438,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                         indicate_data[i] = i % 0xff;
                     }
                     // the size of indicate_data[] need less than MTU size
-                    esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, color_handle_table[IDX_CHAR_VAL_A],
+                    esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, gatts_handle_table[IDX_CHAR_VAL_A],
                                                 sizeof(indicate_data), indicate_data, true);
                 }
                 else if (descr_value == 0x0000)
@@ -459,8 +509,8 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
         else
         {
             ESP_LOGI(TAG, "create attribute table successfully, the number handle = %d\n", param->add_attr_tab.num_handle);
-            memcpy(color_handle_table, param->add_attr_tab.handles, sizeof(color_handle_table));
-            esp_ble_gatts_start_service(color_handle_table[IDX_SVC]);
+            memcpy(gatts_handle_table, param->add_attr_tab.handles, sizeof(gatts_handle_table));
+            esp_ble_gatts_start_service(gatts_handle_table[IDX_SVC]);
         }
         break;
     }
@@ -542,6 +592,8 @@ void app_main(void)
         ESP_LOGI(TAG, "COLOR: %lu", color);
     }
     nvs_close(nvs_handle);
+
+    init_timer();
 
     init_led();
 
