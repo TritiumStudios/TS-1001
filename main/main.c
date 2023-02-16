@@ -34,20 +34,24 @@
 #define PREPARE_BUF_MAX_SIZE 1024
 #define CHAR_DECLARATION_SIZE (sizeof(uint8_t))
 
-#define MANUFACTURER_DATA_LEN 1
+#define MANUFACTURER_DATA_LEN 4
 
 #define ADV_CONFIG_FLAG (1 << 0)
 #define SCAN_RSP_CONFIG_FLAG (1 << 1)
 
-#define DEFAULT_COLOR 0xffffff
+#define DEFAULT_RED 0xff
+#define DEFAULT_GREEN 0xff
+#define DEFAULT_BLUE 0xff
+
 #define DEFAULT_POWER 0x01
+
 #define NVS_NAMESPACE "led"
 #define NVS_COLOR "color"
 #define NVS_POWER "power"
 
 static uint8_t adv_config_done = 0;
 
-static uint32_t current_color = DEFAULT_COLOR;
+static uint32_t current_color = DEFAULT_RED << 16 | DEFAULT_GREEN << 8 | DEFAULT_BLUE;
 static uint8_t current_power = DEFAULT_POWER;
 
 uint16_t gatts_handle_table[HRS_IDX_NB];
@@ -121,7 +125,7 @@ typedef struct
 static prepare_type_env_t prepare_write_env;
 
 const uint8_t power_on[1] = {0x01};
-static uint8_t manufacturer_data[1] = {DEFAULT_POWER};
+static uint8_t manufacturer_data[MANUFACTURER_DATA_LEN] = {DEFAULT_POWER, DEFAULT_RED, DEFAULT_GREEN, DEFAULT_BLUE};
 
 static uint8_t service_uuid[16] = {
     /* LSB <--------------------------------------------------------------------------------> MSB */
@@ -225,7 +229,7 @@ static const uint16_t character_client_config_uuid = ESP_GATT_UUID_CHAR_CLIENT_C
 static const uint8_t char_prop_read_write = ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_READ;
 static const uint8_t char_prop_read_write_notify = ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_NOTIFY;
 static const uint8_t client_characteristic_configuration[2] = {0x00, 0x00};
-static uint8_t char_color_value[3] = {0xff, 0xff, 0xff};
+static uint8_t char_color_value[3] = {DEFAULT_RED, DEFAULT_GREEN, DEFAULT_BLUE};
 static uint8_t char_power_value[1] = {DEFAULT_POWER};
 
 /* Full Database Description - Used to add attributes into the database */
@@ -446,6 +450,9 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                 esp_ble_gatts_set_attr_value(gatts_handle_table[IDX_CHAR_VAL_POWER], 1, power_on);
 
                 manufacturer_data[0] = current_power;
+                manufacturer_data[1] = red;
+                manufacturer_data[2] = green;
+                manufacturer_data[3] = blue;
                 esp_ble_gap_config_adv_data(&adv_data);
             }
 
@@ -470,7 +477,6 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                     manufacturer_data[0] = power;
                     esp_ble_gap_config_adv_data(&adv_data);
                 }
-
                 current_power = power;
             }
 
@@ -589,7 +595,6 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
 
 static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
 {
-
     /* If event is register event, store the gatts_if for each profile */
     if (event == ESP_GATTS_REG_EVT)
     {
@@ -642,8 +647,9 @@ void app_main(void)
     ret = nvs_get_u32(nvs_handle, NVS_COLOR, &color);
     if (ret == ESP_ERR_NVS_NOT_FOUND)
     {
-        ESP_LOGI(TAG, "Setting the default color (%u)", DEFAULT_COLOR);
-        ESP_ERROR_CHECK(nvs_set_u32(nvs_handle, NVS_COLOR, DEFAULT_COLOR));
+        color = DEFAULT_RED << 16 | DEFAULT_GREEN << 8 | DEFAULT_BLUE;
+        ESP_LOGI(TAG, "Setting the default color (%lu)", color);
+        ESP_ERROR_CHECK(nvs_set_u32(nvs_handle, NVS_COLOR, color));
         ESP_ERROR_CHECK(nvs_commit(nvs_handle));
     }
     else
@@ -671,11 +677,11 @@ void app_main(void)
 
     init_led();
 
+    uint8_t red = color >> 16;
+    uint8_t green = color >> 8;
+    uint8_t blue = color;
     if (power == 0x01)
     {
-        uint8_t red = color >> 16;
-        uint8_t green = color >> 8;
-        uint8_t blue = color;
         char_color_value[0] = red;
         char_color_value[1] = green;
         char_color_value[2] = blue;
@@ -687,6 +693,9 @@ void app_main(void)
         set_led_off();
     }
     manufacturer_data[0] = power;
+    manufacturer_data[1] = red;
+    manufacturer_data[2] = green;
+    manufacturer_data[3] = blue;
 
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
 
