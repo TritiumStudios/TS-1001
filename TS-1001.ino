@@ -11,7 +11,9 @@
 
 // LEDs
 #include <Adafruit_NeoPixel.h>
- 
+
+#define SWITCH_PIN 13
+
 #define LED_PIN 14
 #define LED_COUNT 38
 
@@ -40,6 +42,9 @@ Adafruit_NeoPixel pixels = Adafruit_NeoPixel(LED_COUNT, LED_PIN, NEO_GRB + NEO_K
 
 BLECharacteristic *colorCharacteristic;
 BLECharacteristic *powerCharacteristic;
+
+int switchState = 0;
+int prevSwitchState = 0;
 
 void storeData() {
   uint32_t color = current_color[0] << 16 | current_color[1] << 8 | current_color[2];
@@ -199,7 +204,7 @@ void setup() {
                                          BLECharacteristic::PROPERTY_WRITE
                                        );
   colorCharacteristic->setCallbacks(new MyCallbacks());
-  uint8_t color_value[3] = {DEFAULT_RED, DEFAULT_GREEN, DEFAULT_BLUE};
+  uint8_t color_value[3] = {current_color[0], current_color[1], current_color[2]};
   colorCharacteristic->setValue(color_value, 3);
 
   // power
@@ -209,16 +214,35 @@ void setup() {
                                          BLECharacteristic::PROPERTY_WRITE
                                        );
   powerCharacteristic->setCallbacks(new MyCallbacks());
-  uint8_t power_value[1] = {DEFAULT_POWER};
+  uint8_t power_value[1] = {current_power};
   powerCharacteristic->setValue(power_value, 1);
 
   pService->start();
   
   setBleData();
+
+  pinMode(SWITCH_PIN, INPUT);
 }
 
 void loop() {
   if (xSemaphoreTake(timerSemaphore, 0) == pdTRUE){
     storeData();
+  }
+
+  switchState = digitalRead(SWITCH_PIN);
+  if (switchState != prevSwitchState) {
+    if (switchState == HIGH) {
+      current_power = 0x01;
+      uint8_t power_value[1] = {current_power};
+      powerCharacteristic->setValue(power_value, 1);
+      setLedColor();
+      setBleData();
+    } else {
+      current_power = 0x00;
+      uint8_t power_value[1] = {current_power};
+      powerCharacteristic->setValue(power_value, 1);
+      setLedOff();
+      setBleData();
+    }
   }
 }
