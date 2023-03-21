@@ -110,7 +110,7 @@ void setBleData() {
   pAdvertising->start();
 }
 
-class MyCallbacks: public BLECharacteristicCallbacks {
+class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *pCharacteristic) {
     if (pCharacteristic->getUUID().equals(colorCharacteristic->getUUID()))
     {
@@ -151,6 +151,16 @@ class MyCallbacks: public BLECharacteristicCallbacks {
         setBleData();
       }
     }
+  }
+};
+
+class MyServerCallbacks: public BLEServerCallbacks {
+  void onConnect(BLEServer* pServer) {
+    Serial.println("Connected");
+  };
+  void onDisconnect(BLEServer* pServer) {
+    Serial.println("Disconnected");
+    pServer->startAdvertising();
   }
 };
 
@@ -195,6 +205,8 @@ void setup() {
 
   BLEDevice::init(BLE_NAME);
   BLEServer *pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+
   BLEService *pService = pServer->createService(SERVICE_UUID);
 
   // color
@@ -203,7 +215,7 @@ void setup() {
                                          BLECharacteristic::PROPERTY_READ |
                                          BLECharacteristic::PROPERTY_WRITE
                                        );
-  colorCharacteristic->setCallbacks(new MyCallbacks());
+  colorCharacteristic->setCallbacks(new MyCharacteristicCallbacks());
   uint8_t color_value[3] = {current_color[0], current_color[1], current_color[2]};
   colorCharacteristic->setValue(color_value, 3);
 
@@ -213,7 +225,7 @@ void setup() {
                                          BLECharacteristic::PROPERTY_READ |
                                          BLECharacteristic::PROPERTY_WRITE
                                        );
-  powerCharacteristic->setCallbacks(new MyCallbacks());
+  powerCharacteristic->setCallbacks(new MyCharacteristicCallbacks());
   uint8_t power_value[1] = {current_power};
   powerCharacteristic->setValue(power_value, 1);
 
