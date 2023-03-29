@@ -18,7 +18,7 @@ Next, connect the USB to Serial Converter to your PC, open the Arduino IDE, and 
 
 Install the following boards.
 
-- ESP32 Arduino
+- [ESP32 Arduino](https://randomnerdtutorials.com/installing-esp32-arduino-ide-2-0/)
 
 Install the following libraries. 
 
