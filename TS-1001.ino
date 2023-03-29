@@ -12,7 +12,7 @@
 // LEDs
 #include <Adafruit_NeoPixel.h>
 
-#define SWITCH_PIN 13
+#define BUTTON_PIN 4
 
 #define LED_PIN 14
 #define LED_COUNT 38
@@ -43,8 +43,12 @@ Adafruit_NeoPixel pixels = Adafruit_NeoPixel(LED_COUNT, LED_PIN, NEO_GRB + NEO_K
 BLECharacteristic *colorCharacteristic;
 BLECharacteristic *powerCharacteristic;
 
-int switchState = 0;
-int prevSwitchState = 0;
+const int KEY_PRESSED = LOW; //state of key being pressed
+const unsigned long KEY_DURATION = 1000; // milliseconds, minimum threshold to test for long presses
+int buttonState = 0;
+int lastButtonState = 0;
+unsigned long buttonPressTime;
+bool buttonDown = false;
 
 void storeData() {
   uint32_t color = current_color[0] << 16 | current_color[1] << 8 | current_color[2];
@@ -233,7 +237,7 @@ void setup() {
   
   setBleData();
 
-  pinMode(SWITCH_PIN, INPUT);
+  pinMode(BUTTON_PIN, INPUT);
 }
 
 void loop() {
@@ -241,9 +245,23 @@ void loop() {
     storeData();
   }
 
-  switchState = digitalRead(SWITCH_PIN);
-  if (switchState != prevSwitchState) {
-    if (switchState == HIGH) {
+  buttonState = digitalRead(BUTTON_PIN);
+
+  if (buttonState != lastButtonState) {
+    if (buttonState == KEY_PRESSED) {
+      buttonPressTime = millis();
+      buttonDown = true;
+    } else {
+      buttonDown = false;
+    }
+    delay(50); // debounce
+  }
+  lastButtonState = buttonState;
+
+  if (buttonDown == true && millis() - buttonPressTime >= KEY_DURATION) {
+    // long key press
+    buttonDown = false; // reset state so button has to be released
+    if (current_power == 0x00) {
       current_power = 0x01;
       uint8_t power_value[1] = {current_power};
       powerCharacteristic->setValue(power_value, 1);
