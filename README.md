@@ -1,5 +1,9 @@
 # TS-1001
 
+Firmware source code for the Tritium Saber Stand
+
+[Software Repo](https://github.com/TritiumStudios/tritium-sabers)
+
 ## Programming
 
 To program the TS-1001, first connect the programming pins to a USB to Serial converter as shown below.
